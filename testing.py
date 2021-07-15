@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 
 root_dir = "../../Downloads/Summer project/BSDS300"
 
@@ -46,6 +47,25 @@ def create_image(seg_val, seg_max):
     img.show()
 
 
+class Crop_Array_Centre(object):
+    def __init__(self, output_size):
+        assert isinstance(output_size, (int, tuple))
+        if isinstance(output_size, int):
+            self.output_size = (output_size, output_size)
+        else:
+            assert len(output_size) == 2
+            self.output_size = output_size
+
+    def __call__(self, sample):
+        image, label = sample["image"], sample["label"]
+        y, x = image.shape()
+        crop_y, crop_x = self.output_size
+        start_x, start_y = x // 2 - (crop_x // 2), y // 2 - (crop_y // 2)
+        image = image[start_y: start_y + crop_y, start_x: start_x + crop_x]
+        label = label[start_y: start_y + crop_y, start_x: start_x + crop_x]
+        return {'image': image, 'label': label}
+
+
 class Berkeley(Dataset):
     """Custom dataset containing training or test data & their respective labels"""
 
@@ -53,6 +73,22 @@ class Berkeley(Dataset):
         """Images and labels are converted into np.arrays and listed in ascending index
         :param image_files: Path to images
         :param label_files: Path to segmentation labels"""
+        self.images, self.labels = self.array_from_path(image_files, label_files)
+        self.transform = transform.Compose([
+            Crop_Array_Centre(256),  # Crops landscape and portrait to uniform size
+            transform.ToTensor()  # Converts np.array to torch.tensor
+        ])
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, index):
+        image = self.images[index]
+        label = self.labels[index]
+        sample = {"image": image, "label": label}
+        return sample
+
+    def array_from_path(self, image_files, label_files):
         images = sorted([img for img in os.listdir(image_files)])  # List in format .jpg
         image_names = [os.path.splitext(img)[0] for img in images]  # List of image ids (sans .jpg)
         ordered_files = {}
@@ -64,23 +100,22 @@ class Berkeley(Dataset):
                     seg, _ = extract_labels(file_path)
                     ordered_files[file_name] = seg
 
-        self.images = [np.asarray(Image.open(os.path.join(image_files, img))) for img in images]
-        self.labels = [value for _, value in sorted(ordered_files.items(), key=lambda ele: ele[0])]
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.labels)
-
-    def __getitem__(self, index):
-        image = self.images[index]
-        label = self.labels[index]
-        sample = {"Image": image, "Label": label}
-        return sample
+        images = [np.asarray(Image.open(os.path.join(image_files, img))) for img in images]
+        labels = [value for _, value in sorted(ordered_files.items(), key=lambda ele: ele[0])]
+        return images, labels
 
 
-testset = Berkeley(test_data, labels)
-testloader = DataLoader(testset, batch_size=25, shuffle=False)
+"""trainloader = DataLoader(
+    Berkeley(train_data, labels),
+    batch_size=25,
+    shuffle=False)
 
-"""test = os.path.join(labels, '1115/66053.seg')
+testloader = DataLoader(
+    Berkeley(test_data, labels),
+    batch_size=25,
+    shuffle=False)"""
+
+
+test = os.path.join(labels, '1105/15004.seg')
 segmentation, seg_num = extract_labels(test)
-create_image(segmentation, seg_num)"""
+create_image(segmentation, seg_num)
