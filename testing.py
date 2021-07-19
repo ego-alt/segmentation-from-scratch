@@ -47,7 +47,9 @@ def create_image(seg_val, seg_max):
     img.show()
 
 
-class Crop_Array_Centre(object):
+class CropArrayCentre(object):
+    """Custom transform to crop the centre of arrays (both images and segmentations)"""
+
     def __init__(self, output_size):
         assert isinstance(output_size, (int, tuple))
         if isinstance(output_size, int):
@@ -58,7 +60,7 @@ class Crop_Array_Centre(object):
 
     def __call__(self, sample):
         image, label = sample["image"], sample["label"]
-        y, x = image.shape()
+        y, x, _ = image.shape
         crop_y, crop_x = self.output_size
         start_x, start_y = x // 2 - (crop_x // 2), y // 2 - (crop_y // 2)
         image = image[start_y: start_y + crop_y, start_x: start_x + crop_x]
@@ -66,26 +68,35 @@ class Crop_Array_Centre(object):
         return {'image': image, 'label': label}
 
 
-class Berkeley(Dataset):
-    """Custom dataset containing training or test data & their respective labels"""
+class TwoTensor(object):
+    """Custom transform to convert arrays (both images and segmentations) to tensors"""
 
-    def __init__(self, image_files, label_files, transform=None):
+    def __call__(self, sample):
+        image, label = sample["image"], sample["label"]
+        image = image.transpose((2, 0, 1))
+        return {'image': torch.from_numpy(image), 'label': torch.from_numpy(label)}
+
+
+class Berkeley(Dataset):
+    """Custom dataset containing training/test data + their respective labels"""
+
+    def __init__(self, image_files, label_files):
         """Images and labels are converted into np.arrays and listed in ascending index
         :param image_files: Path to images
         :param label_files: Path to segmentation labels"""
         self.images, self.labels = self.array_from_path(image_files, label_files)
-        self.transform = transform.Compose([
-            Crop_Array_Centre(256),  # Crops landscape and portrait to uniform size
-            transform.ToTensor()  # Converts np.array to torch.tensor
+        self.transform = transforms.Compose([
+            CropArrayCentre(321),  # Crops image + segmentation to uniform size
+            TwoTensor()  # Converts image + segmentation np.array to torch.tensor
         ])
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, index):
-        image = self.images[index]
-        label = self.labels[index]
-        sample = {"image": image, "label": label}
+        sample = {"image": self.images[index], "label": self.labels[index]}
+        if self.transform:
+            sample = self.transform(sample)
         return sample
 
     def array_from_path(self, image_files, label_files):
@@ -105,17 +116,34 @@ class Berkeley(Dataset):
         return images, labels
 
 
-"""trainloader = DataLoader(
-    Berkeley(train_data, labels),
-    batch_size=25,
-    shuffle=False)
-
-testloader = DataLoader(
-    Berkeley(test_data, labels),
-    batch_size=25,
-    shuffle=False)"""
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-test = os.path.join(labels, '1105/15004.seg')
-segmentation, seg_num = extract_labels(test)
-create_image(segmentation, seg_num)
+class Encoder(torch.nn.Module):
+    def __init__(self, in_channel):
+        super().__init__()
+        self.in_channel = in_channel
+        self.out_channel = in_channel * 2
+        self.stack = torch.nn.Sequential(
+            torch.nn.Conv2d(self.in_channel, self.out_channel, (3, 3)),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(self.out_channel, self.out_channel, (3, 3)),
+        )
+
+    def forward(self, x):
+        self.stack(x)
+
+
+class Decoder(torch.nn.Module):
+    def __init__(self, in_channel):
+        super().__init__()
+        self.in_channel = in_channel
+        self.out_channel = in_channel / 2
+        self.stack = torch.nn.Sequential(
+            torch.nn.Conv2d(self.in_channel, self.out_channel, (3, 3)),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(self.out_channel, self.out_channel, (3, 3))
+        )
+
+    def forward(self):
+        pass
