@@ -1,5 +1,8 @@
 import numpy as np
 from PIL import Image
+from os import listdir
+from os.path import join
+import cv2
 
 
 class Cluster:
@@ -12,14 +15,15 @@ class Cluster:
         self.instance = np.zeros_like(array)
         self.cell_clusters = []
 
-    def main(self):
+    def main(self, filename):
+        print(f'Preparing {filename}')
         for (x, y) in self.cells:
-            cluster = []
+            cluster = set()
             cluster = self.find_cell(x, y, cluster)  # Find surrounding neighbours
             if cluster: self.cell_clusters.append(cluster)
+        print(f'Instances have been resolved for {filename}')
 
-        self.clustering()
-        self.save_im()
+        self.save_im(filename)
 
     def find_neigh(self, col, row):
         x1 = (col - 1) if col > 0 else col
@@ -53,10 +57,36 @@ class Cluster:
                         self.cell_clusters.remove(out)
                         rem.update(out)
 
-    def save_im(self):
+    def save_im(self, filename):
         for idx, lst in enumerate(self.cell_clusters):
             for (x, y) in lst:
                 self.instance[x - 1, y - 1] = idx
 
+        print(f'Saving {filename} ...')
         output = Image.fromarray(np.uint8(self.instance))
-        output.save()
+        output.save(filename)
+
+
+class ImageProcessor:
+    def __init__(self, img_path, save_path):
+        self.names = [lb for lb in sorted(listdir(img_path))][0:25]
+        self.labels = np.array([cv2.imread(join(img_path, lb), 0) for lb in self.names]) / 255
+        self.save_path = save_path
+
+    def main(self, crop):
+        for idx, i in enumerate(self.labels):
+            img = self.center_crop(i, crop, crop)
+            handler = Cluster(img)
+            handler.main(join(self.save_path, self.names[idx]))
+
+    def center_crop(self, img, crop_x, crop_y):
+        y, x = img.shape
+        x0 = (x - crop_x) // 2
+        y0 = (y - crop_y) // 2
+        crop_img = img[y0:y0 + crop_y, x0:x0 + crop_x]
+        return crop_img
+
+
+root = " "
+save_root = " "
+ImageProcessor(root, save_root).main(256)
