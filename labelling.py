@@ -3,16 +3,16 @@ from PIL import Image
 from os import listdir
 from os.path import join
 import cv2
+import re
 
 
 class Cluster:
     def __init__(self, array):
-        cells = np.where(array > 0.5)
+        cells = np.where(array == 1)
         full_x, full_y = cells
 
         self.cells = set(zip(full_x, full_y))
         self.c_num = len(self.cells)
-        self.instance = np.zeros_like(array)
         self.cell_clusters = []
 
     def main(self, filename):
@@ -22,8 +22,7 @@ class Cluster:
             cluster = self.find_cell(x, y, cluster)  # Find surrounding neighbours
             if cluster: self.cell_clusters.append(cluster)
         print(f'Instances have been resolved for {filename}')
-
-        self.save_im(filename)
+        return self.cell_clusters
 
     def find_neigh(self, col, row):
         x1 = (col - 1) if col > 0 else col
@@ -45,8 +44,8 @@ class Cluster:
                 self.find_cell(c, r, cluster)
         return cluster
 
-    def clustering(self):
-        """Checks whether instances of unusually small size should be merged"""
+    """def clustering(self):
+        Checks whether instances of unusually small size should be merged
         n = self.c_num // len(self.cell_clusters)  # Average no. of pixels per cell
 
         for out in self.cell_clusters:
@@ -55,29 +54,54 @@ class Cluster:
                 for rem in self.cell_clusters:
                     if out != rem and set(self.find_neigh(x1, y1)) & rem:
                         self.cell_clusters.remove(out)
-                        rem.update(out)
+                        rem.update(out)"""
 
-    def save_im(self, filename):
-        for idx, lst in enumerate(self.cell_clusters):
-            for (x, y) in lst:
-                self.instance[x - 1, y - 1] = idx
 
-        print(f'Saving {filename} ...')
-        output = Image.fromarray(np.uint8(self.instance))
-        output.save(filename)
+class Batches:
+    def __init__(self, names):
+        self.names = names
+        self.files = {}
+        self.org_files()
+
+    def org_files(self):
+        regex = "^F0[1-4]_[0-9]+"
+        for file in self.names:
+            if not file.startswith('.'):
+                filename = re.findall(regex, file)[0]
+                self.listdict(self.files, filename, file)
+
+    def listdict(self, dictionary, key, value):
+        if key not in dictionary:
+            dictionary[key] = list()
+        dictionary[key].append(value)
 
 
 class ImageProcessor:
     def __init__(self, img_path, save_path):
-        self.names = [lb for lb in sorted(listdir(img_path))][0:25]
-        self.labels = np.array([cv2.imread(join(img_path, lb), 0) for lb in self.names]) / 255
+        self.files = Batches(sorted(listdir(img_path))).files
+
+        self.labels = []
+        for name in self.files:
+            label = [cv2.imread(join(img_path, i), 0) for i in self.files[name]]
+            self.labels.append(np.array(label) / 255)
+
         self.save_path = save_path
 
     def main(self, crop):
-        for idx, i in enumerate(self.labels):
-            img = self.center_crop(i, crop, crop)
-            handler = Cluster(img)
-            handler.main(join(self.save_path, self.names[idx]))
+        names = [n for n in self.files]
+        for idx, images in enumerate(self.labels):
+            img = [self.center_crop(i, crop, crop) for i in images]
+            layer_num = len(img)
+
+            holder = []
+            black_strip = np.zeros((1, crop))
+            for i in img:
+                holder.extend([i, black_strip])
+            img = np.concatenate(holder)
+
+            cells = Cluster(img).main(names[idx])
+            instance = np.zeros_like(img)
+            self.save_im(names[idx], cells, instance, layer_num)
 
     def center_crop(self, img, crop_x, crop_y):
         y, x = img.shape
@@ -86,7 +110,22 @@ class ImageProcessor:
         crop_img = img[y0:y0 + crop_y, x0:x0 + crop_x]
         return crop_img
 
+    def save_im(self, name, cells, instance, layer_num):
+        for idx, lst in enumerate(cells):
+            for (x, y) in lst:
+                instance[x, y] = idx + idx*10
 
-root = " "
-save_root = " "
-ImageProcessor(root, save_root).main(256)
+        print(f'Saving {name} ...')
+        inst = np.array_split(instance, layer_num)
+        for ind, arr in enumerate(inst):
+            output = Image.fromarray(np.uint8(arr[:-1, :]))
+            filename = join(self.save_path, self.files[name][ind])
+            print(filename)
+            print(np.unique(arr[:-1, :]))
+            output.save(filename)
+
+
+root = '/Users/batfolder/Downloads/Summer project/MP6843_seg'
+save = '/Users/batfolder/Downloads/Summer project/test2'
+testtet = ImageProcessor(root, save)
+testtet.main(256)
