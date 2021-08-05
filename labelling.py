@@ -44,18 +44,6 @@ class Cluster:
                 self.find_cell(c, r, cluster)
         return cluster
 
-    """def clustering(self):
-        Checks whether instances of unusually small size should be merged
-        n = self.c_num // len(self.cell_clusters)  # Average no. of pixels per cell
-
-        for out in self.cell_clusters:
-            if len(out) < (n // 10):
-                x1, y1 = sorted(out)[0]
-                for rem in self.cell_clusters:
-                    if out != rem and set(self.find_neigh(x1, y1)) & rem:
-                        self.cell_clusters.remove(out)
-                        rem.update(out)"""
-
 
 class Batches:
     def __init__(self, names):
@@ -79,29 +67,42 @@ class Batches:
 class ImageProcessor:
     def __init__(self, img_path, save_path):
         self.files = Batches(sorted(listdir(img_path))).files
-
         self.labels = []
         for name in self.files:
             label = [cv2.imread(join(img_path, i), 0) for i in self.files[name]]
-            self.labels.append(np.array(label) / 255)
-
+            l_arr = (np.array(label) / 255)
+            l_arr[l_arr < 0.5] = 0
+            l_arr[l_arr > 0.5] = 1
+            self.labels.append(l_arr)
         self.save_path = save_path
 
-    def main(self, crop):
+    def handle(self, crop=None, cluster=None):
         names = [n for n in self.files]
-        for idx, images in enumerate(self.labels):
-            img = [self.center_crop(i, crop, crop) for i in images]
-            layer_num = len(img)
+        batch_arr = []
+        layer_num = []
 
+        for idx, img in enumerate(self.labels):
             holder = []
-            black_strip = np.zeros((1, crop))
+            if crop: img = [self.center_crop(i, crop, crop) for i in img]
+            layer_num.append(len(img))
             for i in img:
+                _, x = i.shape
+                black_strip = np.zeros((1, x))
                 holder.extend([i, black_strip])
             img = np.concatenate(holder)
+            if cluster: self.cluster(img, names[idx], len(img))
 
-            cells = Cluster(img).main(names[idx])
-            instance = np.zeros_like(img)
-            self.save_im(names[idx], cells, instance, layer_num)
+            batch_arr.append(img)
+
+        return names, batch_arr, layer_num
+
+    def cluster(self, img, filename, layer_num):
+        cells = Cluster(img).main(filename)
+        instance = np.zeros_like(img)
+        for i, lst in enumerate(cells):
+            for (x, y) in lst:
+                instance[x, y] = i
+        self.save_im(filename, instance, layer_num)
 
     def center_crop(self, img, crop_x, crop_y):
         y, x = img.shape
@@ -110,22 +111,11 @@ class ImageProcessor:
         crop_img = img[y0:y0 + crop_y, x0:x0 + crop_x]
         return crop_img
 
-    def save_im(self, name, cells, instance, layer_num):
-        for idx, lst in enumerate(cells):
-            for (x, y) in lst:
-                instance[x, y] = idx + idx*10
-
+    def save_im(self, name, instance, layer_num):
         print(f'Saving {name} ...')
         inst = np.array_split(instance, layer_num)
         for ind, arr in enumerate(inst):
+            print(arr.shape)
             output = Image.fromarray(np.uint8(arr[:-1, :]))
             filename = join(self.save_path, self.files[name][ind])
-            print(filename)
-            print(np.unique(arr[:-1, :]))
             output.save(filename)
-
-
-root = '/Users/batfolder/Downloads/Summer project/MP6843_seg'
-save = '/Users/batfolder/Downloads/Summer project/test2'
-testtet = ImageProcessor(root, save)
-testtet.main(256)
