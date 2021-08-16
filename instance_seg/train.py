@@ -34,9 +34,10 @@ class ArrayMaker:
             for i in self.files[name]:
                 if greyscale:
                     im = cv2.imread(join(self.root, i), 0)
-                else:
+                else:  # Full colour with 3 channels
                     im = cv2.imread(join(self.root, i))
-                if dim: im = cv2.resize(im, dim, interpolation=cv2.INTER_AREA)
+                if dim:  # Change image dimensions to match labels
+                    im = cv2.resize(im, dim, interpolation=cv2.INTER_AREA)
 
                 im = np.array(im)
                 if crop:  # Center crop
@@ -73,11 +74,65 @@ class ArrayMaker:
         stacked = [np.stack(self.arrdict[name], axis=-1) for name in self.arrdict]
         return stacked  # List of 3D segmentation arrays
 
+    def overlapping(self):
+        overlapped = [sum(self.arrdict[name]) for name in self.arrdict]
+        return overlapped
+
     def listdict(self, dictionary, key, value):
         """Updates a dictionary of lists"""
         if key not in dictionary:
             dictionary[key] = list()
         dictionary[key].append(value)
+
+
+class Match:
+    def __init__(self, lb_root, im_root):
+        labels = ArrayMaker(lb_root)
+        images = ArrayMaker(im_root)
+
+        labels.main(greyscale=True)
+        x, y = list(labels.arrdict.values())[0][0].shape
+
+        images.main(dim=(y, x))
+        images.common_elements(labels.arrdict)  # Only keeps images with labels
+
+        self.labels_over = labels.overlapping()
+        self.labels_stac = labels.stacking()  # 3D segmentations
+        self.im_types = {'w1': images.filtering('w1'),  # Images of full cells
+                         'w2': images.filtering('w2')}  # Images of nuclei only
+
+        w1 = self.im_types['w1']
+        w2 = self.im_types['w2']
+        self.im_types['alt'] = [w1[i] if i % 2 == 0 else w2[i]
+                                for i in range(len(w1))]
+
+    def main(self, w_name, output_size=False):
+        img_set = self.im_types[w_name]
+        lbl_set = self.labels_stac
+
+        if output_size:
+            img_temp, lbl_temp = [], []
+            h_new, w_new = output_size
+
+            for i, image in enumerate(img_set):
+                h, w = image.shape[0:2]
+                y = np.random.randint(0, h - h_new)
+                x = np.random.randint(0, w - w_new)
+                label = self.labels_stac[i]
+
+                image = image[y:y + h_new, x:x + w_new, :]
+                label = label[y:y + h_new, x:x + w_new, :]
+                if len(np.unique(label)) > 1:
+                    img_temp.append(image)
+                    lbl_temp.append(label)
+
+            img_set, lbl_set = img_temp, lbl_temp
+
+        return img_set, lbl_set
+
+    def img_to_lbl(self, image, w):
+        label = self.labels_over[w.index(image)]
+        return label
 
 
 class CellImages(Dataset):
@@ -177,13 +232,13 @@ class ImageTest:
         self.classes = ['__background__', 'cell']
 
     def main(self, model, conf=0.5):
-        figure = plt.figure(figsize=(15,10))
+        figure = plt.figure(figsize=(15, 10))
 
         for ind, i in enumerate(self.img):
             i = self.transform(i).to(device)
             boxes, classes, masks = self.run_model(model, i, conf)
             ax = figure.add_subplot(2, 2, ind + 1)
-            image = self.from_gpu(i).transpose(1,2,0)
+            image = self.from_gpu(i).transpose(1, 2, 0)
             image = Image.fromarray(np.uint8(image * 255)).convert('L')
             ax.imshow(image, cmap='gray')
             self.show_boxes(boxes, ax)
