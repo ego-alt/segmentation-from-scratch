@@ -122,7 +122,7 @@ class Match:
             scale = np.random.randint(50, 300) / 100
             dim = (int(width * scale), int(height * scale))
             image = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
-            label = cv2.resize(self.labels_stac[i], dim, interpolation=cv2.INTER_AREA)
+            label = cv2.resize(self.labels_stac[i], dim, interpolation=cv2.INTER_NEAREST)
 
             # Random crop to the required dimensions
             height, width = image.shape[0:2]
@@ -140,6 +140,10 @@ class Match:
     def img_to_lbl(self, image, w):
         label = self.labels_over[w.index(image)]
         return label
+
+
+handler = Match('/Users/batfolder/Downloads/Summer project/MP6843_inst', '/Users/batfolder/Downloads/Summer project/MP6843_img_full')
+handler.main('w1', (256, 256))
 
 
 class CellImages(Dataset):
