@@ -26,26 +26,29 @@ class ArrayMaker:
         self.root = root_path
         self.files = {}  # Directory for image versions/ layers
         self.arrdict = {}  # Holds image arrays
-
         self.org_files()
 
-    def main(self, dim=None, crop=None, greyscale=False):
-        for name in self.files:
-            for i in self.files[name]:
-                if greyscale:
-                    im = cv2.imread(join(self.root, i), 0)
-                else:  # Full colour with 3 channels
-                    im = cv2.imread(join(self.root, i))
+    def main(self, dim=None, crop=None, greyscale=False, common=None):
+        for name, values in self.files.items():
+
+            for i in values:
+                # Greyscale or full colour with 3 channels
+                im = cv2.imread(join(self.root, i), 0) if greyscale \
+                    else cv2.imread(join(self.root, i))
+
                 if dim:  # Change image dimensions to match labels
                     im = cv2.resize(im, dim, interpolation=cv2.INTER_AREA)
 
-                im = np.array(im)
                 if crop:  # Center crop
                     y, x, *_ = im.shape
                     x0 = (x - crop) // 2
                     y0 = (y - crop) // 2
                     im = im[x0:x0 + crop, y0:y0 + crop]
+
                 self.listdict(self.arrdict, name, im)
+
+        if common:
+            self.common_elements(common)
 
     def org_files(self):
         """Image variants can be accessed under the same key in a dictionary"""
@@ -86,47 +89,51 @@ class ArrayMaker:
 
 
 class Match:
-    def __init__(self, lb_root, im_root):
-        labels = ArrayMaker(lb_root)
-        images = ArrayMaker(im_root)
+    """Pair images and labels for random transformations and cross-referencing"""
 
+    def __init__(self, lb_root, im_root):
+        """Separates images of full cells and nuclei,
+        labels_over: N layers of a segmentation label summed into one image,
+        labels_stac: N layers of a segmentation label stacked into (h x w x N)"""
+
+        labels = ArrayMaker(lb_root)
         labels.main(greyscale=True)
         x, y = list(labels.arrdict.values())[0][0].shape
 
-        images.main(dim=(y, x))
-        images.common_elements(labels.arrdict)  # Only keeps images with labels
+        images = ArrayMaker(im_root)
+        images.main(dim=(y, x), common=labels.arrdict)  # Only keeps images with labels
 
         self.labels_over = labels.overlapping()
         self.labels_stac = labels.stacking()  # 3D segmentations
         self.im_types = {'w1': images.filtering('w1'),  # Images of full cells
                          'w2': images.filtering('w2')}  # Images of nuclei only
 
-        w1 = self.im_types['w1']
-        w2 = self.im_types['w2']
-        self.im_types['alt'] = [w1[i] if i % 2 == 0 else w2[i]
-                                for i in range(len(w1))]
+    def main(self, w_name, resize_crop):
+        """"Simultaneous random transforms on images and their labels"""
 
-    def main(self, w_name, output_size=False):
-        img_set = self.im_types[w_name]
-        lbl_set = self.labels_stac
+        w_images = self.im_types[w_name]
+        img_set, lbl_set = [], []
+        h_new, w_new = resize_crop  # Standard cropping dimensions
 
-        if output_size:
-            img_temp, lbl_temp = [], []
-            h_new, w_new = output_size
+        for i, image in enumerate(w_images):
 
-            for i, image in enumerate(img_set):
-                h, w = image.shape[0:2]
-                y = np.random.randint(0, h - h_new)
-                x = np.random.randint(0, w - w_new)
-                label = self.labels_stac[i]
+            # Random resize while preserving the aspect ratio, 0.5x to 3x
+            height, width = image.shape[0:2]
+            scale = np.random.randint(50, 300) / 100
+            dim = (int(width * scale), int(height * scale))
+            image = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
+            label = cv2.resize(self.labels_stac[i], dim, interpolation=cv2.INTER_AREA)
 
-                image = image[y:y + h_new, x:x + w_new, :]
-                label = label[y:y + h_new, x:x + w_new, :]
-                if len(np.unique(label)) > 1:
-                    img_temp.append(image)
-                    lbl_temp.append(label)
+            # Random crop to the required dimensions
+            height, width = image.shape[0:2]
+            y = np.random.randint(0, height - h_new)
+            x = np.random.randint(0, width - w_new)
+            image = image[y:y + h_new, x:x + w_new]
+            label = label[y:y + h_new, x:x + w_new]
 
-            img_set, lbl_set = img_temp, lbl_temp
+            if len(np.unique(label)) > 1:
+                img_set.append(image)
+                lbl_set.append(label)
 
         return img_set, lbl_set
 
