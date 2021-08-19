@@ -125,11 +125,14 @@ class Match:
             label = cv2.resize(self.labels_stac[i], dim, interpolation=cv2.INTER_NEAREST)
 
             # Random crop to the required dimensions
-            height, width = image.shape[0:2]
+            height, width, *num = label.shape
             y = np.random.randint(0, height - h_new)
             x = np.random.randint(0, width - w_new)
             image = image[y:y + h_new, x:x + w_new]
             label = label[y:y + h_new, x:x + w_new]
+
+            if not num:
+                label = np.expand_dims(label, axis=-1)
 
             if len(np.unique(label)) > 1:
                 img_set.append(image)
@@ -140,10 +143,6 @@ class Match:
     def img_to_lbl(self, image, w):
         label = self.labels_over[w.index(image)]
         return label
-
-
-handler = Match('/Users/batfolder/Downloads/Summer project/MP6843_inst', '/Users/batfolder/Downloads/Summer project/MP6843_img_full')
-handler.main('w1', (256, 256))
 
 
 class CellImages(Dataset):
