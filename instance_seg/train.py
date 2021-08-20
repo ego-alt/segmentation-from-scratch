@@ -125,15 +125,17 @@ class Match:
             label = cv2.resize(label_stack[i], dim, interpolation=cv2.INTER_NEAREST)
 
             # Random crop to the required dimensions
-            height, width, *num = label.shape  # New dimensions
+            if len(label.shape) == 2:
+                label = np.expand_dims(label, axis=-1)
+            height, width, num = label.shape  # New dimensions
 
             while True:
                 y = np.random.randint(0, height - h_new)
                 x = np.random.randint(0, width - w_new)
+                condition = label[y:y + h_new, x:x + w_new, :]
 
-                condition = label[y:y + h_new, x:x + w_new]
-                if len(np.unique(condition)) > 1:
-                    label = condition if num else np.expand_dims(condition, axis=-1)
+                if len(np.unique(condition[:, :, num - 1])) > 1:
+                    label = condition
                     image = image[y:y + h_new, x:x + w_new]
 
                     self.img_set.append(image)
