@@ -63,13 +63,16 @@ class ArrayMaker:
         stored = {k: self.arrdict[k] for k in self.arrdict if k in other}
         self.arrdict = stored
 
+    def names(self):
+        names = [name for name in self.files.keys()]
+        return names
+
     def filtering(self, keyword):
         """Filters images given specific criteria in their filenames"""
         filtered = []
-        for name in self.files:
-            filename = self.files[name]
-            f = [filename.index(i) for i in filename if keyword in i]
-            filtered.extend(self.arrdict[name][i] for i in f)
+        for name, file in self.files.items():
+            filtered.extend(self.arrdict[name][ind]
+                            for ind, i in enumerate(file) if keyword in i)
         return filtered  # List of filtered image arrays
 
     def stacking(self):
@@ -92,57 +95,61 @@ class Match:
     """Pair images and labels for random transformations and cross-referencing"""
 
     def __init__(self, lb_root, im_root):
-        """Separates images of full cells and nuclei,
-        labels_over: N layers of a segmentation label summed into one image,
-        labels_stac: N layers of a segmentation label stacked into (h x w x N)"""
+        """Creates objects handling images and labels,
+        i.e. Preliminary processing, filtering, and extracting information"""
 
-        labels = ArrayMaker(lb_root)
-        labels.main(greyscale=True)
-        x, y = list(labels.arrdict.values())[0][0].shape
+        self.labels = ArrayMaker(lb_root)
+        self.labels.main(greyscale=True)
+        x, y = list(self.labels.arrdict.values())[0][0].shape
 
-        images = ArrayMaker(im_root)
-        images.main(dim=(y, x), common=labels.arrdict)  # Only keeps images with labels
+        self.images = ArrayMaker(im_root)
+        self.images.main(dim=(y, x), common=self.labels.arrdict)  # Only keeps images with labels
+        self.names = self.images.names()  # List of file names for referencing
 
-        self.labels_over = labels.overlapping()
-        self.labels_stac = labels.stacking()  # 3D segmentations
-        self.im_types = {'w1': images.filtering('w1'),  # Images of full cells
-                         'w2': images.filtering('w2')}  # Images of nuclei only
+        self.img_set, self.lbl_set = [], []  # Processed images and labels
 
-    def main(self, w_name, resize_crop):
+    def main(self, w_name, resize_crop):  # Input can either be 'w1' or 'w2'
         """"Simultaneous random transforms on images and their labels"""
 
-        w_images = self.im_types[w_name]
-        img_set, lbl_set = [], []
+        w_images = self.images.filtering(w_name)  # Images of full cells or nuclei
+        label_stack = self.labels.stacking()  # N layers stacked into dimensions (H x W x N)
         h_new, w_new = resize_crop  # Standard cropping dimensions
 
         for i, image in enumerate(w_images):
 
-            # Random resize while preserving the aspect ratio, 0.5x to 3x
+            # Random resize while preserving the aspect ratio
             height, width = image.shape[0:2]
-            scale = np.random.randint(50, 300) / 100
+            scale = np.random.randint(50, 300) / 100  # 0.5x to 3x
             dim = (int(width * scale), int(height * scale))
             image = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
-            label = cv2.resize(self.labels_stac[i], dim, interpolation=cv2.INTER_NEAREST)
+            label = cv2.resize(label_stack[i], dim, interpolation=cv2.INTER_NEAREST)
 
             # Random crop to the required dimensions
-            height, width, *num = label.shape
-            y = np.random.randint(0, height - h_new)
-            x = np.random.randint(0, width - w_new)
-            image = image[y:y + h_new, x:x + w_new]
-            label = label[y:y + h_new, x:x + w_new]
+            height, width, *num = label.shape  # New dimensions
 
-            if not num:
-                label = np.expand_dims(label, axis=-1)
+            while True:
+                y = np.random.randint(0, height - h_new)
+                x = np.random.randint(0, width - w_new)
 
-            if len(np.unique(label)) > 1:
-                img_set.append(image)
-                lbl_set.append(label)
+                condition = label[y:y + h_new, x:x + w_new]
+                if len(np.unique(condition)) > 1:
+                    label = condition if num else np.expand_dims(condition, axis=-1)
+                    image = image[y:y + h_new, x:x + w_new]
 
-        return img_set, lbl_set
+                    self.img_set.append(image)
+                    self.lbl_set.append(label)
+                    break
 
-    def img_to_lbl(self, image, w):
-        label = self.labels_over[w.index(image)]
-        return label
+        return self.img_set, self.lbl_set
+
+    def name_call(self, name):
+        """Given the filename, returns the image and label positions"""
+        return self.names.index(name)
+
+    def img_to_lbl(self, ind):
+        """Returns the indexed label for visualisation"""
+        label = self.labels.overlapping()  # Separate layers summed into one image
+        return label[ind]
 
 
 class CellImages(Dataset):
