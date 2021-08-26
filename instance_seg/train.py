@@ -13,8 +13,6 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-from torch.optim.lr_scheduler import OneCycleLR
-from engine import train_one_epoch, evaluate
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -225,21 +223,6 @@ def instance(num_classes):
     model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, hidden_layer, num_classes)
 
     return model
-
-
-class InitModel:
-    def __init__(self, num_classes=2):
-        self.model = instance(num_classes)
-        self.model.to(device)
-
-    def main(self, train, test, epochs=30):
-        params = [p for p in self.model.parameters() if p.requires_grad]
-        optimiser = torch.optim.SGD(params, lr=0.005, weight_decay=0.001)
-        scheduler = OneCycleLR(optimiser, max_lr=0.05, steps_per_epoch=len(train), epochs=epochs)
-        for epoch in range(epochs):
-            train_one_epoch(self.model, optimiser, train, device, epoch, print_freq=10)
-            scheduler.step()
-            evaluate(self.model, test, device=device)
 
 
 class ImageTest:
