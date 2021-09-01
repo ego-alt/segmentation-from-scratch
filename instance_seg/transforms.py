@@ -18,12 +18,14 @@ class Resize_Crop(object):
         if len(label.shape) == 2:
             label = np.expand_dims(label, axis=-1)
         height, width, num = label.shape  # New dimensions
+
         while True:  # Random crop to the required dimensions
             y = np.random.randint(0, height - self.h)
             x = np.random.randint(0, width - self.w)
-            condition = label[y:y + self.h, x:x + self.w, :]
-            if len(np.unique(condition[:, :, num - 1])) > 4:
-                label = condition  # Processed label
+            crop_label = label[y:y + self.h, x:x + self.w, :]
+            values, counts = np.unique(crop_label[:, :, num - 1], return_counts=True)
+            if len(values) > 1 and counts[-1] > 4:
+                label = crop_label  # Processed label
                 image = image[y:y + self.h, x:x + self.w]  # Processed image
                 break
 
