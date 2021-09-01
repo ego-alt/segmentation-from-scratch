@@ -22,7 +22,7 @@ class Resize_Crop(object):
             y = np.random.randint(0, height - self.h)
             x = np.random.randint(0, width - self.w)
             condition = label[y:y + self.h, x:x + self.w, :]
-            if len(np.unique(condition[:, :, num - 1])) > 1:
+            if len(np.unique(condition[:, :, num - 1])) > 4:
                 label = condition  # Processed label
                 image = image[y:y + self.h, x:x + self.w]  # Processed image
                 break

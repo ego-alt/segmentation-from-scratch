@@ -193,25 +193,27 @@ def instance(num_classes):
 
 
 class ImageTest:
-    def __init__(self, test_img):
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-        ])
-        self.img = test_img
+    def __init__(self, ind, w1, labels3d):
+        self.transform = Resize_Crop((256, 256))
+        self.img, self.lbl = w1[ind], labels3d[ind]
         self.classes = ['__background__', 'cell']
 
     def main(self, model, conf=0.5):
-        figure = plt.figure(figsize=(15, 10))
+        _, _, layer_num = np.shape(self.lbl)
+        f, ax = plt.subplots(1, 2 + layer_num, figsize=(12, 8))
+        img, lbl = self.transform(self.img, self.lbl)
+        img = transforms.ToTensor()(img).to(device)
 
-        for ind, i in enumerate(self.img):
-            i = self.transform(i).to(device)
-            boxes, classes, masks = self.run_model(model, i, conf)
-            ax = figure.add_subplot(2, 2, ind + 1)
-            image = self.from_gpu(i).transpose(1, 2, 0)
-            image = Image.fromarray(np.uint8(image * 255)).convert('L')
-            ax.imshow(image, cmap='gray')
-            self.show_boxes(boxes, ax)
-            self.show_masks(masks, ax)
+        boxes, classes, masks = self.run_model(model, img, conf)
+        img = self.from_gpu(img).transpose(1, 2, 0)
+        img = Image.fromarray(np.uint8(img * 255)).convert('L')
+
+        ax[0].imshow(img, cmap='gray')
+        self.show_boxes(boxes, ax[0])
+        self.show_masks(masks, ax[0])
+        ax[1].imshow(self.img * 15, cmap='gray', vmin=0, vmax=255)
+        for i in range(layer_num):
+            ax[2 + i].imshow(self.lbl[:, :, i])
 
     def show_boxes(self, boxes, ax):
         for j in range(len(boxes)):
