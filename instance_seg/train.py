@@ -14,6 +14,8 @@ from torchvision import transforms
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
+from transforms import Resize_Crop
+
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 
@@ -104,43 +106,10 @@ class Match:
         self.images.main(dim=(y, x), common=self.labels.arrdict)  # Only keeps images with labels
         self.names = self.images.names()  # List of file names for referencing
 
-        self.img_set, self.lbl_set = [], []  # Processed images and labels
-
-    def main(self, w_name, resize_crop):  # Input can either be 'w1' or 'w2'
-        """"Simultaneous random transforms on images and their labels"""
-
+    def main(self, w_name):  # Input can either be 'w1' or 'w2'
         w_images = self.images.filtering(w_name)  # Images of full cells or nuclei
         label_stack = self.labels.stacking()  # N layers stacked into dimensions (H x W x N)
-        h_new, w_new = resize_crop  # Standard cropping dimensions
-
-        for i, image in enumerate(w_images):
-
-            # Random resize while preserving the aspect ratio
-            height, width = image.shape[0:2]
-            scale = np.random.randint(50, 300) / 100  # 0.5x to 3x
-            dim = (int(width * scale), int(height * scale))
-            image = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
-            label = cv2.resize(label_stack[i], dim, interpolation=cv2.INTER_NEAREST)
-
-            # Random crop to the required dimensions
-            if len(label.shape) == 2:
-                label = np.expand_dims(label, axis=-1)
-            height, width, num = label.shape  # New dimensions
-
-            while True:
-                y = np.random.randint(0, height - h_new)
-                x = np.random.randint(0, width - w_new)
-                condition = label[y:y + h_new, x:x + w_new, :]
-
-                if len(np.unique(condition[:, :, num - 1])) > 1:
-                    label = condition
-                    image = image[y:y + h_new, x:x + w_new]
-
-                    self.img_set.append(image)
-                    self.lbl_set.append(label)
-                    break
-
-        return self.img_set, self.lbl_set
+        return w_images, label_stack
 
     def name_call(self, name):
         """Given the filename, returns the image and label positions"""
@@ -153,19 +122,17 @@ class Match:
 
 
 class CellImages(Dataset):
-    def __init__(self, images, labels):
+    def __init__(self, images, labels, crop):
         self.images = images
         self.labels = labels
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-        ])
+        self.transform = Resize_Crop(crop)
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, ind):
-        img = self.transform(self.images[ind])
-        lbl = self.labels[ind]
+        img, lbl = self.transform(self.images[ind], self.labels[ind])
+        img = transforms.ToTensor()(img)
         _, _, stack_num = lbl.shape  # Number of layers
 
         masks = None
