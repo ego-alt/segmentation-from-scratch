@@ -152,8 +152,8 @@ class CellImages(Dataset):
         # Locates bounding boxes for each cell
         for i in range(mask_num):
             coord = np.where(masks[i])  # Coordinates for "is cell"
-            x0, x1 = np.min(coord[1]), np.max(coord[1])
-            y0, y1 = np.min(coord[0]), np.max(coord[0])
+            x0, x1 = np.min(coord[1]) - 1, np.max(coord[1]) + 1
+            y0, y1 = np.min(coord[0]) - 1, np.max(coord[0]) + 1
             if x0 < x1 and y0 < y1:
                 boxes.append([x0, y0, x1, y1])
 
@@ -161,7 +161,7 @@ class CellImages(Dataset):
         labels = torch.ones((mask_num,), dtype=torch.int64)  # Only 1 class
         masks = torch.as_tensor(masks, dtype=torch.uint8)  # Segmentation masks
         image_id = torch.as_tensor([ind])  # Unique image identifier
-        area = (boxes[:, 3] - boxes[:, 1] + 1) * (boxes[:, 2] - boxes[:, 0] + 1)
+        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
         iscrowd = torch.zeros((mask_num,), dtype=torch.int64)
 
         # Required for the pretrained Mask R-CNN
