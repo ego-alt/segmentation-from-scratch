@@ -13,6 +13,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+from engine import train_one_epoch, evaluate
 
 from transforms import Resize_Crop
 
@@ -192,6 +193,21 @@ def instance(num_classes):
     return model
 
 
+class InitModel:
+    def __init__(self, num_classes=2):
+        self.model = instance(num_classes)
+        self.model.to(device)
+
+    def main(self, train, test, epochs=30):
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        optimiser = torch.optim.Adam(params, lr=0.0005, weight_decay=0.001)
+        scheduler = OneCycleLR(optimiser, max_lr=0.005, steps_per_epoch=len(train), epochs=epochs)
+        for epoch in range(epochs):
+            train_one_epoch(self.model, optimiser, train, device, epoch, print_freq=10)
+            scheduler.step()
+            evaluate(self.model, test, device=device)
+
+
 class ImageTest:
     def __init__(self, ind, w1, labels3d):
         self.transform = Resize_Crop((256, 256))
@@ -201,13 +217,11 @@ class ImageTest:
     def main(self, model, conf=0.5):
         _, _, layer_num = np.shape(self.lbl)
         f, ax = plt.subplots(1, 2 + layer_num, figsize=(12, 8))
-        img, lbl = self.transform(self.img, self.lbl)
-        img = transforms.ToTensor()(img).to(device)
-
+        self.img, self.lbl = self.transform(self.img, self.lbl)
+        img = transforms.ToTensor()(self.img).to(device)
         boxes, classes, masks = self.run_model(model, img, conf)
-        img = self.from_gpu(img).transpose(1, 2, 0)
-        img = Image.fromarray(np.uint8(img * 255)).convert('L')
 
+        self.img = Image.fromarray(np.uint8(self.img * 255)).convert('L')
         ax[0].imshow(img, cmap='gray')
         self.show_boxes(boxes, ax[0])
         self.show_masks(masks, ax[0])
