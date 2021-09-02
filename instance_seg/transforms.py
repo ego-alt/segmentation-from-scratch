@@ -24,7 +24,7 @@ class Resize_Crop(object):
             x = np.random.randint(0, width - self.w)
             crop_label = label[y:y + self.h, x:x + self.w, :]
             values, counts = np.unique(crop_label[:, :, num - 1], return_counts=True)
-            if len(values) > 1 and counts[-1] > 4:
+            if len(values) > 1:
                 label = crop_label  # Processed label
                 image = image[y:y + self.h, x:x + self.w]  # Processed image
                 break

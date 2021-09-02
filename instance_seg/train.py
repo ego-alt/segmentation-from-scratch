@@ -161,7 +161,7 @@ class CellImages(Dataset):
         labels = torch.ones((mask_num,), dtype=torch.int64)  # Only 1 class
         masks = torch.as_tensor(masks, dtype=torch.uint8)  # Segmentation masks
         image_id = torch.as_tensor([ind])  # Unique image identifier
-        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+        area = (boxes[:, 3] - boxes[:, 1] + 1) * (boxes[:, 2] - boxes[:, 0] + 1)
         iscrowd = torch.zeros((mask_num,), dtype=torch.int64)
 
         # Required for the pretrained Mask R-CNN
