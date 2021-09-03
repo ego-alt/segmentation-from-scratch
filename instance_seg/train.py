@@ -13,9 +13,8 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-from engine import train_one_epoch, evaluate
 
-from transforms import Resize_Crop
+from . import transforms
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -112,51 +111,62 @@ class Match:
         label_stack = self.labels.stacking()  # N layers stacked into dimensions (H x W x N)
         return w_images, label_stack
 
-    def name_call(self, name):
+    def idx_call(self, name):
         """Given the filename, returns the image and label positions"""
         return self.names.index(name)
 
-    def img_to_lbl(self, ind):
+    def label_call(self, ind):
         """Returns the indexed label for visualisation"""
         label = self.labels.overlapping()  # Separate layers summed into one image
         return label[ind]
+
+
+def find_masks(stack_num, lbl):
+    masks = None
+    for i in range(stack_num):
+        # Iterates over layers in a 3D segmentation
+        layer = lbl[:, :, i]
+        obj_ids = np.unique(layer)[1:]  # Excludes the background
+        # Set of binary masks for each cell
+        if masks is None:
+            masks = layer == obj_ids[:, None, None]
+        else:
+            current = layer == obj_ids[:, None, None]
+            masks = np.concatenate((masks, current), axis=0)
+    mask_num, _, _ = masks.shape  # Number of unique cells
+    return masks, mask_num
+
+
+def find_boxes(mask_num, masks):
+    boxes = []
+    # Locates bounding boxes for each cell
+    for i in range(mask_num):
+        coord = np.where(masks[i])  # Coordinates for "is cell"
+        x0, x1 = np.min(coord[1]) - 1, np.max(coord[1]) + 1
+        y0, y1 = np.min(coord[0]) - 1, np.max(coord[0]) + 1
+        if x0 < x1 and y0 < y1:
+            boxes.append([x0, y0, x1, y1])
+    return boxes
 
 
 class CellImages(Dataset):
     def __init__(self, images, labels, crop):
         self.images = images
         self.labels = labels
-        self.transform = Resize_Crop(crop)
+        self.crop = crop
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, ind):
-        img, lbl = self.transform(self.images[ind], self.labels[ind])
+        img, lbl = self.images[ind], self.labels[ind]
+        if self.crop:
+            img, lbl = transforms.Resize_Crop(self.crop)(img, lbl)
+
         img = transforms.ToTensor()(img)
         _, _, stack_num = lbl.shape  # Number of layers
-
-        masks = None
-        for i in range(stack_num):
-            # Iterates over layers in a 3D segmentation
-            layer = lbl[:, :, i]
-            obj_ids = np.unique(layer)[1:]  # Excludes the background
-            # Set of binary masks for each cell
-            if masks is None:
-                masks = layer == obj_ids[:, None, None]
-            else:
-                current = layer == obj_ids[:, None, None]
-                masks = np.concatenate((masks, current), axis=0)
-        mask_num, _, _ = masks.shape  # Number of unique cells
-
-        boxes = []
-        # Locates bounding boxes for each cell
-        for i in range(mask_num):
-            coord = np.where(masks[i])  # Coordinates for "is cell"
-            x0, x1 = np.min(coord[1]) - 1, np.max(coord[1]) + 1
-            y0, y1 = np.min(coord[0]) - 1, np.max(coord[0]) + 1
-            if x0 < x1 and y0 < y1:
-                boxes.append([x0, y0, x1, y1])
+        masks, mask_num = find_masks(stack_num, lbl)
+        boxes = find_boxes(mask_num, masks)
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)  # Box coordinates
         labels = torch.ones((mask_num,), dtype=torch.int64)  # Only 1 class
@@ -193,24 +203,9 @@ def instance(num_classes):
     return model
 
 
-class InitModel:
-    def __init__(self, num_classes=2):
-        self.model = instance(num_classes)
-        self.model.to(device)
-
-    def main(self, train, test, epochs=30):
-        params = [p for p in self.model.parameters() if p.requires_grad]
-        optimiser = torch.optim.Adam(params, lr=0.0005, weight_decay=0.001)
-        scheduler = OneCycleLR(optimiser, max_lr=0.005, steps_per_epoch=len(train), epochs=epochs)
-        for epoch in range(epochs):
-            train_one_epoch(self.model, optimiser, train, device, epoch, print_freq=10)
-            scheduler.step()
-            evaluate(self.model, test, device=device)
-
-
 class ImageTest:
     def __init__(self, ind, w1, labels3d):
-        self.transform = Resize_Crop((256, 256))
+        self.transform = transforms.Resize_Crop((256, 256))
         self.img, self.lbl = w1[ind], labels3d[ind]
         self.classes = ['__background__', 'cell']
 
@@ -222,7 +217,7 @@ class ImageTest:
         boxes, classes, masks = self.run_model(model, img, conf)
 
         self.img = Image.fromarray(np.uint8(self.img * 255)).convert('L')
-        ax[0].imshow(img, cmap='gray')
+        ax[0].imshow(self.img, cmap='gray')
         self.show_boxes(boxes, ax[0])
         self.show_masks(masks, ax[0])
         ax[1].imshow(self.img * 15, cmap='gray', vmin=0, vmax=255)
