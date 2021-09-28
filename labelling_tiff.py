@@ -2,11 +2,17 @@ import numpy as np
 from PIL import Image
 from os import listdir
 from os.path import join
+from skimage.measure import label
 import cv2
 import re
 
 
+"""Specifically tailored for Project P2043 of the Cell Image Library
+Requirements: convert float values to binary 0/1 and label each cell instance with a new value"""
+
+
 class Cluster:
+    # Crude flood-fill function which was replaced by sci-kit's method
     def __init__(self, array):
         cells = np.where(array == 1)
         full_x, full_y = cells
@@ -52,6 +58,7 @@ class Batches:
         self.org_files()
 
     def org_files(self):
+        # Organises files according to the specific sequence F0X_XXXX in their filename
         regex = "^F0[1-4]_[0-9]+"
         for file in self.names:
             if not file.startswith('.'):
@@ -59,17 +66,19 @@ class Batches:
                 self.listdict(self.files, filename, file)
 
     def listdict(self, dictionary, key, value):
+        # Groups files in lists within a dictionary
         if key not in dictionary:
             dictionary[key] = list()
         dictionary[key].append(value)
 
 
-class ImageProcessor:
+class TiffImageProcessor:
     def __init__(self, img_path, save_path):
         self.files = Batches(sorted(listdir(img_path))).files
         self.labels = []
         for name in self.files:
             label = [cv2.imread(join(img_path, i), 0) for i in self.files[name]]
+            # Converts float values to binary values
             l_arr = (np.array(label) / 255)
             l_arr[l_arr < 0.5] = 0
             l_arr[l_arr > 0.5] = 1
@@ -113,9 +122,20 @@ class ImageProcessor:
 
     def save_im(self, name, instance, layer_num):
         print(f'Saving {name} ...')
-        inst = np.array_split(instance, layer_num)
+        inst = np.array_split(instance, layer_num)  # Separates concatenated layers
         for ind, arr in enumerate(inst):
             print(arr.shape)
             output = Image.fromarray(np.uint8(arr[:-1, :]))
             filename = join(self.save_path, self.files[name][ind])
             output.save(filename)
+
+
+root = ''
+save = ''
+
+process = TiffImageProcessor(root, save)
+names, layered_images, num = process.handle()
+
+for i, img in enumerate(layered_images):
+    output = label(img)
+    process.save_im(names[i], output, num[i])
